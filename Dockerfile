@@ -1,24 +1,60 @@
-#I don't know why `Run npm install` doesn't work make sure ran `npm install` before
+FROM node:12.22 as cache-image
 
-#build
+# Create app directory
+RUN mkdir -p /usr/src/app
+WORKDIR /usr/src/app
 
-FROM node AS  builder
-WORKDIR /app
-COPY . .
+## Install package dependencies
+RUN apt-get update
 
-RUN npm run build
-FROM nginx:alpine
+# Install app dependencies
+COPY . /usr/src/app/
+RUN yarn install
 
-WORKDIR /usr/share/nginx/html
+# Build frontend
+FROM cache-image as builder
+WORKDIR /usr/src/app
+COPY . /usr/src/app
 
-COPY --from=builder /app/build .
+RUN yarn build
+
+# PROD environment
+# Create image based on the official NGINX image from dockerhub
+FROM nginx:1.16.0-alpine as deploy-image
+
+## Set timezones
+RUN cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime
+
+# Get all the builded code to root folder
+COPY --from=builder /usr/src/app/build /usr/share/nginx/html
+
+# Copy nginx template to container
+COPY --from=builder /usr/src/app/ops/config/nginx.template.conf /etc/nginx/nginx.conf
+COPY --from=builder /usr/src/app/ops/config/default.template.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /usr/src/app/start-container.sh /etc/nginx/start-container.sh
+RUN chmod +x /etc/nginx/start-container.sh
+RUN mkdir -p /usr/share/nginx/html/media
+## Serve the app
+CMD [ "/bin/sh", "-c", "/etc/nginx/start-container.sh" ]
+
 CMD ["nginx", "-g", "daemon off;"]
 
 #=====================================================
 
+# ENV PATH /app/<project-name>/node_modules/.bin:$PATH
+
 #start from local
-FROM node
-#Run mkdir /app/<project-name>
-WORKDIR /app/<project-name>
-COPY . .
+FROM node:12.22 as cache-image
+
+# Create app directory
+RUN mkdir -p /usr/src/app
+WORKDIR /usr/src/app
+
+## Install package dependencies
+RUN apt-get update
+
+# Install app dependencies
+COPY . /usr/src/app/
+RUN yarn install
+
 CMD ["npm", "run", "start"]
